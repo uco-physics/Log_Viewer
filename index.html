@@ -3,10 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Script Log Viewer</title>
+    <title>Script Log Viewer with Replay</title>
     <!-- Bootstrap CDN: レスポンシブUIとモダンデザインのために使用 -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <!-- xterm.js CDN: ターミナルエミュレーションのために使用 -->
+    <!-- xterm.js CDN: ターミナルエミュレーションと再生のために使用 -->
     <link href="https://unpkg.com/xterm@5.1.0/css/xterm.css" rel="stylesheet">
     <style>
         /* 全体のスタイル */
@@ -56,6 +56,10 @@
         #progressBar {
             display: none;
         }
+        /* 再生コントロール */
+        .replay-controls {
+            margin-bottom: 10px;
+        }
         /* ボタンのホバーエフェクト */
         .btn:hover {
             transform: translateY(-2px);
@@ -65,7 +69,7 @@
 </head>
 <body>
     <div class="container">
-        <h1 class="text-center mb-4">Script Log Viewer</h1>
+        <h1 class="text-center mb-4">Script Log Viewer with Replay</h1>
 
         <!-- 入力セクション -->
         <div class="input-section">
@@ -129,6 +133,18 @@
                     <label class="form-check-label" for="rawText">生ログ</label>
                 </div>
             </div>
+            <!-- 再生コントロール -->
+            <div class="replay-controls" id="replayControls" style="display: none;">
+                <button class="btn btn-success mx-1" id="playButton">再生</button>
+                <button class="btn btn-warning mx-1" id="pauseButton" disabled>一時停止</button>
+                <button class="btn btn-danger mx-1" id="resetButton">リセット</button>
+                <select class="form-select d-inline-block w-auto mx-1" id="speedSelect">
+                    <option value="0.5">0.5x</option>
+                    <option value="1" selected>1x</option>
+                    <option value="2">2x</option>
+                    <option value="4">4x</option>
+                </select>
+            </div>
             <div class="progress mb-3" id="progressBar">
                 <div class="progress-bar" role="progressbar" style="width: 0%;" id="progressBarInner"></div>
             </div>
@@ -149,9 +165,10 @@
 
     <script>
         // 全体のアーキテクチャ:
-        // - UI: Bootstrapでレスポンシブな入力/出力UIを構築。
+        // - UI: Bootstrapでレスポンシブな入力/出力UI。再生コントロールを追加。
         // - 入力処理: ファイルまたはテキストからログとタイムスタンプを読み込み。
         // - ログ処理: チャンク単位で処理し、ANSIエスケープシーケンスをHTMLに変換。
+        // - 再生機能: タイムスタンプに基づき、ログをタイミングに従ってxterm.jsで再生。
         // - 出力: xterm.jsでターミナル風に表示。コピー/ダウンロード機能を提供。
         // - デバッグ: エラーや処理ステップをパネルに表示。
         // - エラーハンドリング: ロバストで、部分エラーでも結果を表示。
@@ -163,6 +180,10 @@
         let plainOutput = ''; // プレーンテキスト出力
         const ansiConverter = new AnsiToHtml(); // ANSIエスケープシーケンスをHTMLに変換
         let terminal; // xterm.jsのインスタンス
+        let replayEvents = []; // 再生イベント（タイムスタンプとログのペア）
+        let isPlaying = false; // 再生中フラグ
+        let replayInterval = null; // 再生タイマー
+        let currentEventIndex = 0; // 現在の再生イベントインデックス
 
         // 初期化関数
         function initializeApp() {
@@ -201,6 +222,12 @@
             // コピー/ダウンロードボタン
             document.getElementById('copyButton').addEventListener('click', copyOutput);
             document.getElementById('downloadButton').addEventListener('click', downloadOutput);
+
+            // 再生コントロール
+            document.getElementById('playButton').addEventListener('click', startReplay);
+            document.getElementById('pauseButton').addEventListener('click', pauseReplay);
+            document.getElementById('resetButton').addEventListener('click', resetReplay);
+            document.getElementById('speedSelect').addEventListener('change', updateReplaySpeed);
 
             // デバッグパネルトグル
             document.getElementById('toggleDebugButton').addEventListener('click', toggleDebugPanel);
@@ -281,6 +308,7 @@
                 terminal.clear();
                 processedOutput = '';
                 plainOutput = '';
+                replayEvents = [];
 
                 // チャンク処理
                 const chunkSize = 1024 * 1024; // 1MB
@@ -293,12 +321,16 @@
                     logDebug(`チャンク${i + 1}/${totalChunks}を処理しました。`);
                 }
 
-                // タイムスタンプ処理（簡易表示）
+                // タイムスタンプ処理
                 if (useTimestamp && timestampContent) {
-                    const timestamps = timestampContent.split('\n').filter(line => line.trim()).map(line => parseFloat(line));
-                    if (timestamps.length > 0) {
-                        terminal.writeln(`[タイムスタンプ情報: ${timestamps.length}件, 開始: ${new Date(timestamps[0] * 1000).toISOString()}]`);
-                    }
+                    await prepareReplayEvents();
+                    document.getElementById('replayControls').style.display = 'block';
+                    logDebug(`再生イベントを準備しました。イベント数: ${replayEvents.length}`);
+                } else {
+                    // タイムスタンプなしの場合、即時表示
+                    terminal.write(processedOutput);
+                    document.getElementById('replayControls').style.display = 'none';
+                    logDebug('タイムスタンプがないため、即時レンダリングしました。');
                 }
 
                 progressBar.style.display = 'none';
@@ -317,10 +349,127 @@
                 // プレーンテキスト抽出（制御文字除去）
                 const plainChunk = chunk.replace(/\u001B\[[0-9;]*[a-zA-Z]/g, '');
                 plainOutput += plainChunk;
-                // ターミナルに書き込み
-                terminal.write(htmlOutput);
             } catch (error) {
                 logError(`チャンク処理中にエラーが発生しました: ${error.message}`);
+            }
+        }
+
+        // 再生イベントの準備
+        async function prepareReplayEvents() {
+            try {
+                // タイムスタンプを解析（例: "1234567890.123 100" の形式）
+                const lines = timestampContent.split('\n').filter(line => line.trim());
+                replayEvents = [];
+                let logIndex = 0;
+
+                for (const line of lines) {
+                    const match = line.match(/^(\d+\.\d+)\s+(\d+)$/);
+                    if (!match) {
+                        logDebug(`無効なタイムスタンプ行をスキップ: ${line}`);
+                        continue;
+                    }
+                    const timestamp = parseFloat(match[1]);
+                    const length = parseInt(match[2], 10);
+                    if (logIndex + length > logContent.length) {
+                        logError(`タイムスタンプの長さがログを超えています。インデックス: ${logIndex}, 長さ: ${length}`);
+                        break;
+                    }
+                    const chunk = logContent.slice(logIndex, logIndex + length);
+                    const htmlChunk = ansiConverter.toHtml(chunk);
+                    replayEvents.push({ timestamp, chunk: htmlChunk });
+                    logIndex += length;
+                }
+
+                // タイムスタンプを相対時間に変換
+                if (replayEvents.length > 0) {
+                    const baseTime = replayEvents[0].timestamp;
+                    replayEvents = replayEvents.map(event => ({
+                        delay: (event.timestamp - baseTime) * 1000, // 秒をミリ秒に変換
+                        chunk: event.chunk
+                    }));
+                }
+
+                logDebug(`再生イベントを生成しました。イベント数: ${replayEvents.length}`);
+            } catch (error) {
+                logError(`再生イベントの準備中にエラーが発生しました: ${error.message}`);
+                replayEvents = [];
+            }
+        }
+
+        // 再生開始
+        function startReplay() {
+            if (isPlaying || replayEvents.length === 0) return;
+            isPlaying = true;
+            document.getElementById('playButton').disabled = true;
+            document.getElementById('pauseButton').disabled = false;
+            document.getElementById('resetButton').disabled = false;
+            terminal.clear();
+            currentEventIndex = 0;
+            playNextEvent();
+            logDebug('再生を開始しました。');
+        }
+
+        // 再生の一時停止
+        function pauseReplay() {
+            if (!isPlaying) return;
+            isPlaying = false;
+            clearInterval(replayInterval);
+            document.getElementById('playButton').disabled = false;
+            document.getElementById('pauseButton').disabled = true;
+            logDebug('再生を一時停止しました。');
+        }
+
+        // 再生のリセット
+        function resetReplay() {
+            isPlaying = false;
+            clearInterval(replayInterval);
+            terminal.clear();
+            currentEventIndex = 0;
+            document.getElementById('playButton').disabled = false;
+            document.getElementById('pauseButton').disabled = true;
+            document.getElementById('resetButton').disabled = true;
+            document.getElementById('progressBar').style.display = 'none';
+            logDebug('再生をリセットしました。');
+        }
+
+        // 次のイベントを再生
+        function playNextEvent() {
+            if (currentEventIndex >= replayEvents.length) {
+                pauseReplay();
+                logDebug('再生が完了しました。');
+                return;
+            }
+
+            const event = replayEvents[currentEventIndex];
+            const speed = parseFloat(document.getElementById('speedSelect').value);
+            const delay = event.delay / speed;
+
+            // プログレスバー更新
+            const progressBar = document.getElementById('progressBar');
+            const progressBarInner = document.getElementById('progressBarInner');
+            progressBar.style.display = 'block';
+            progressBarInner.style.width = `${(currentEventIndex / replayEvents.length * 100).toFixed(2)}%`;
+
+            // ログチャンクを表示
+            terminal.write(event.chunk);
+            currentEventIndex++;
+
+            // 次のイベントの遅延を設定
+            if (currentEventIndex < replayEvents.length) {
+                const nextDelay = (replayEvents[currentEventIndex].delay / speed) - (delay);
+                replayInterval = setTimeout(playNextEvent, nextDelay);
+            } else {
+                pauseReplay();
+            }
+        }
+
+        // 再生速度の更新
+        function updateReplaySpeed() {
+            const speed = parseFloat(document.getElementById('speedSelect').value);
+            logDebug(`再生速度を${speed}xに変更しました。`);
+            if (isPlaying) {
+                pauseReplay();
+                startReplay();
             }
         }
 
