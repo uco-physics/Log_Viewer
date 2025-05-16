@@ -4,29 +4,33 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Script Log Viewer</title>
-  <!-- Bootstrap CDN: レスポンシブデザインとモダンなUI -->
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <!-- Bootstrap CDN: レスポンシブデザインとUIコンポーネント用 -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
   <!-- ansi-to-html CDN: ANSIエスケープシーケンスをHTMLに変換 -->
   <script src="https://cdn.jsdelivr.net/npm/ansi-to-html@0.7.2/lib/ansi_to_html.min.js"></script>
-  <!-- xterm.js CDN: ターミナルエミュレーション（オプション） -->
-  <link href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" rel="stylesheet">
-  <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+  <!-- xterm.js CDN: ターミナル風表示を強化 -->
+  <link href="https://cdn.jsdelivr.net/npm/xterm@5.1.0/css/xterm.css" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/xterm@5.1.0/lib/xterm.js"></script>
   <style>
-    /* 全体のレイアウトとモダンなデザイン */
+    /* 全体のレイアウトとテーマ */
     body {
       background-color: #f8f9fa;
       font-family: 'Roboto', sans-serif;
       padding: 20px;
     }
-    .terminal-container {
+    .container {
+      max-width: 1200px;
+    }
+    .terminal-output {
       background-color: #1e1e1e;
       color: #ffffff;
-      font-family: 'Consolas', 'Courier New', monospace;
+      font-family: 'Courier New', monospace;
       padding: 15px;
       height: 400px;
       overflow-y: auto;
       border-radius: 5px;
-      box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+      white-space: pre-wrap;
+      word-wrap: break-word;
     }
     .input-section, .output-section {
       margin-bottom: 20px;
@@ -34,7 +38,7 @@
     .debug-panel {
       display: none;
       background-color: #f1f1f1;
-      padding: 10px;
+      padding: 15px;
       border-radius: 5px;
       max-height: 200px;
       overflow-y: auto;
@@ -42,238 +46,350 @@
     .debug-panel.show {
       display: block;
     }
-    .progress {
-      height: 20px;
-    }
     textarea {
-      width: 100%;
-      min-height: 100px;
+      font-family: 'Courier New', monospace;
       resize: vertical;
     }
-    .drag-over {
+    /* ドラッグ＆ドロップエリアのスタイル */
+    .drop-zone {
       border: 2px dashed #007bff;
+      padding: 20px;
+      text-align: center;
+      border-radius: 5px;
       background-color: #e9ecef;
+      cursor: pointer;
+    }
+    .drop-zone.dragover {
+      background-color: #d0e7ff;
+    }
+    /* プログレスバーのアニメーション */
+    .progress {
+      height: 20px;
+      margin-bottom: 20px;
     }
   </style>
 </head>
 <body>
   <div class="container">
     <h1 class="mb-4">Script Log Viewer</h1>
-
     <!-- 入力セクション -->
-    <div class="input-section">
+    <div class="input-section card p-4 mb-4">
       <h3>ログ入力</h3>
+      <!-- 入力方法のトグル -->
       <div class="mb-3">
-        <label><input type="checkbox" id="useTimestamp"> タイムスタンプを使用</label>
-      </div>
-      <div class="mb-3">
-        <label for="logInput" class="form-label">ログファイルまたはテキスト</label>
-        <div id="logDropZone" class="form-control">
-          <input type="file" id="logFileInput" accept=".log,.txt" style="display: none;">
-          <p class="text-muted">ここにファイルをドラッグ＆ドロップ、またはクリックして選択</p>
+        <label class="form-label">入力方法</label>
+        <div class="form-check">
+          <input type="radio" class="form-check-input" name="inputMethod" id="fileInput" value="file" checked>
+          <label class="form-check-label" for="fileInput">ファイルアップロード</label>
         </div>
-        <textarea id="logInput" class="form-control mt-2" placeholder="ログをペースト"></textarea>
-      </div>
-      <div class="mb-3" id="timestampSection" style="display: none;">
-        <label for="timestampInput" class="form-label">タイムスタンプファイルまたはテキスト</label>
-        <div id="timestampDropZone" class="form-control">
-          <input type="file" id="timestampFileInput" accept=".log,.txt" style="display: none;">
-          <p class="text-muted">ここにファイルをドラッグ＆ドロップ、またはクリックして選択</p>
+        <div class="form-check">
+          <input type="radio" class="form-check-input" name="inputMethod" id="textInput" value="text">
+          <label class="form-check-label" for="textInput">テキスト入力</label>
         </div>
-        <textarea id="timestampInput" class="form-control mt-2" placeholder="タイムスタンプをペースト"></textarea>
       </div>
+      <!-- タイムスタンプのトグル -->
+      <div class="form-check mb-3">
+        <input type="checkbox" class="form-check-input" id="useTimestamp">
+        <label class="form-check-label" for="useTimestamp">タイムスタンプを使用</label>
+      </div>
+      <!-- ログファイル入力 -->
+      <div id="logFileInput" class="mb-3">
+        <label for="logFile" class="form-label">ログファイル</label>
+        <div class="drop-zone" id="logDropZone">ここにログファイルをドラッグ＆ドロップ</div>
+        <input type="file" id="logFile" class="form-control d-none" accept=".log,.txt">
+      </div>
+      <!-- ログテキストエリア -->
+      <div id="logTextInput" class="mb-3 d-none">
+        <label for="logText" class="form-label">ログテキスト</label>
+        <textarea id="logText" class="form-control" rows="5"></textarea>
+      </div>
+      <!-- タイムスタンプファイル入力 -->
+      <div id="timestampFileInput" class="mb-3 d-none">
+        <label for="timestampFile" class="form-label">タイムスタンプファイル</label>
+        <div class="drop-zone" id="timestampDropZone">ここにタイムスタンプファイルをドラッグ＆ドロップ</div>
+        <input type="file" id="timestampFile" class="form-control d-none" accept=".log,.txt">
+      </div>
+      <!-- タイムスタンプテキストエリア -->
+      <div id="timestampTextInput" class="mb-3 d-none">
+        <label for="timestampText" class="form-label">タイムスタンプテキスト</label>
+        <textarea id="timestampText" class="form-control" rows="5"></textarea>
+      </div>
+      <!-- レンダリングボタン -->
       <button id="renderButton" class="btn btn-primary">レンダリング</button>
     </div>
-
     <!-- 出力セクション -->
-    <div class="output-section">
+    <div class="output-section card p-4">
       <h3>出力</h3>
-      <div class="progress mb-2">
-        <div id="progressBar" class="progress-bar" role="progressbar" style="width: 0%;"></div>
+      <!-- プログレスバー -->
+      <div class="progress d-none" id="progressBar">
+        <div class="progress-bar" role="progressbar" style="width: 0%;" id="progressFill"></div>
       </div>
-      <div class="terminal-container" id="terminalOutput"></div>
-      <div class="mt-2">
-        <button id="copyPlainButton" class="btn btn-secondary">プレーンテキストをコピー</button>
-        <button id="copyRawButton" class="btn btn-secondary">生ログをコピー</button>
-        <button id="downloadPlainButton" class="btn btn-secondary">プレーンテキストをダウンロード</button>
+      <!-- ターミナル出力枠 -->
+      <div class="terminal-output" id="terminalOutput"></div>
+      <!-- コピーとダウンロードボタン -->
+      <div class="d-flex justify-content-end mt-3">
+        <button id="copyPlainButton" class="btn btn-secondary me-2">プレーンテキストをコピー</button>
+        <button id="copyRawButton" class="btn btn-secondary me-2">生ログをコピー</button>
+        <button id="downloadPlainButton" class="btn btn-secondary me-2">プレーンテキストをダウンロード</button>
         <button id="downloadRawButton" class="btn btn-secondary">生ログをダウンロード</button>
       </div>
     </div>
-
     <!-- デバッグパネル -->
-    <div class="debug-panel" id="debugPanel">
+    <div class="debug-panel card p-3 mt-4" id="debugPanel">
       <h4>デバッグログ</h4>
-      <div id="debugOutput"></div>
+      <pre id="debugLog"></pre>
     </div>
-    <button id="toggleDebugButton" class="btn btn-outline-secondary mt-2">デバッグパネルを表示/非表示</button>
+    <button class="btn btn-link" id="toggleDebug">デバッグパネルを表示/非表示</button>
   </div>
 
   <script>
     // グローバル変数と初期化
-    const ansiToHtml = new AnsiToHTML({ escapeXML: true });
-    let terminal = null;
-    let rawLog = '';
-    let plainLog = '';
-    let debugLogs = [];
+    const terminalOutput = document.getElementById('terminalOutput');
+    const debugLog = document.getElementById('debugLog');
+    const progressBar = document.getElementById('progressBar');
+    const progressFill = document.getElementById('progressFill');
+    const ansiConverter = new AnsiToHtml(); // ansi-to-htmlインスタンス
+    let terminal; // xterm.jsのインスタンス
+    let logContent = ''; // ログの内容
+    let timestampContent = ''; // タイムスタンプの内容
+    let plainText = ''; // プレーンテキスト（制御文字除去）
 
-    // 初期化関数：ページ読み込み時に実行
+    // デバッグログを追加する関数
+    /**
+     * デバッグメッセージをパネルとコンソールに出力
+     * @param {string} message - デバッグメッセージ
+     */
+    function addDebugLog(message) {
+      const timestamp = new Date().toLocaleTimeString();
+      debugLog.textContent += `[${timestamp}] ${message}\n`;
+      console.log(`[${timestamp}] ${message}`);
+      debugLog.scrollTop = debugLog.scrollHeight;
+    }
+
+    // 初期化関数
+    /**
+     * ページ読み込み時にxterm.jsとイベントリスナーを初期化
+     */
     function initialize() {
-      // XTerm.jsのターミナル初期化
+      // xterm.jsの初期化
       terminal = new Terminal({
-        cols: 120,
-        rows: 20,
-        theme: { background: '#1e1e1e', foreground: '#ffffff' }
+        theme: { background: '#1e1e1e', foreground: '#ffffff' },
+        fontFamily: 'Courier New, monospace',
+        fontSize: 14,
       });
-      terminal.open(document.getElementById('terminalOutput'));
+      terminal.open(terminalOutput);
+      addDebugLog('xterm.jsを初期化しました');
 
       // イベントリスナーの設定
       setupEventListeners();
-      // リロード警告
-      window.onbeforeunload = () => '入力データが失われます。';
+      addDebugLog('イベントリスナーを設定しました');
     }
 
     // イベントリスナーの設定
+    /**
+     * 各種UI要素にイベントリスナーを追加
+     */
     function setupEventListeners() {
-      // タイムスタンプチェックボックス
-      document.getElementById('useTimestamp').addEventListener('change', (e) => {
-        document.getElementById('timestampSection').style.display = e.target.checked ? 'block' : 'none';
+      // 入力方法のトグル
+      document.querySelectorAll('input[name="inputMethod"]').forEach(radio => {
+        radio.addEventListener('change', toggleInputMethod);
       });
-
-      // ドラッグ＆ドロップとファイル選択
-      setupFileInput('logDropZone', 'logFileInput', 'logInput');
-      setupFileInput('timestampDropZone', 'timestampFileInput', 'timestampInput');
-
+      // タイムスタンプトグル
+      document.getElementById('useTimestamp').addEventListener('change', toggleTimestampInput);
+      // ドラッグ＆ドロップ
+      setupDropZone('logDropZone', 'logFile');
+      setupDropZone('timestampDropZone', 'timestampFile');
+      // ファイル入力
+      document.getElementById('logFile').addEventListener('change', handleLogFile);
+      document.getElementById('timestampFile').addEventListener('change', handleTimestampFile);
       // レンダリングボタン
       document.getElementById('renderButton').addEventListener('click', renderLog);
-
-      // コピーとダウンロードボタン
-      document.getElementById('copyPlainButton').addEventListener('click', () => copyToClipboard(plainLog));
-      document.getElementById('copyRawButton').addEventListener('click', () => copyToClipboard(rawLog));
-      document.getElementById('downloadPlainButton').addEventListener('click', () => downloadFile(plainLog, 'log_plain.txt'));
-      document.getElementById('downloadRawButton').addEventListener('click', () => downloadFile(rawLog, 'log_raw.txt'));
-
+      // コピーとダウンロード
+      document.getElementById('copyPlainButton').addEventListener('click', () => copyText(plainText, 'プレーンテキスト'));
+      document.getElementById('copyRawButton').addEventListener('click', () => copyText(logContent, '生ログ'));
+      document.getElementById('downloadPlainButton').addEventListener('click', () => downloadText(plainText, 'log_plain.txt', 'プレーンテキスト'));
+      document.getElementById('downloadRawButton').addEventListener('click', () => downloadText(logContent, 'log_raw.log', '生ログ'));
       // デバッグパネルトグル
-      document.getElementById('toggleDebugButton').addEventListener('click', () => {
+      document.getElementById('toggleDebug').addEventListener('click', () => {
         document.getElementById('debugPanel').classList.toggle('show');
       });
+      // ページ離脱時の警告
+      window.onbeforeunload = () => logContent ? '変更が保存されていません。' : null;
     }
 
-    // ファイル入力とドラッグ＆ドロップの設定
-    function setupFileInput(dropZoneId, fileInputId, textareaId) {
-      const dropZone = document.getElementById(dropZoneId);
-      const fileInput = document.getElementById(fileInputId);
-      const textarea = document.getElementById(textareaId);
+    // 入力方法の切り替え
+    /**
+     * ファイル入力とテキスト入力の表示を切り替え
+     */
+    function toggleInputMethod() {
+      const method = document.querySelector('input[name="inputMethod"]:checked').value;
+      document.getElementById('logFileInput').classList.toggle('d-none', method === 'text');
+      document.getElementById('logTextInput').classList.toggle('d-none', method === 'file');
+      addDebugLog(`入力方法を${method}に変更`);
+    }
 
-      dropZone.addEventListener('click', () => fileInput.click());
-      fileInput.addEventListener('change', () => readFile(fileInput, textarea));
+    // タイムスタンプ入力の切り替え
+    /**
+     * タイムスタンプ入力枠の表示/非表示を切り替え
+     */
+    function toggleTimestampInput() {
+      const enabled = document.getElementById('useTimestamp').checked;
+      document.getElementById('timestampFileInput').classList.toggle('d-none', !enabled);
+      document.getElementById('timestampTextInput').classList.toggle('d-none', !enabled);
+      addDebugLog(`タイムスタンプ入力を${enabled ? '有効' : '無効'}に`);
+    }
+
+    // ドラッグ＆ドロップゾーンの設定
+    /**
+     * ドラッグ＆ドロップのイベントを設定
+     * @param {string} dropZoneId - ドロップゾーンのID
+     * @param {string} inputId - 関連するファイル入力のID
+     */
+    function setupDropZone(dropZoneId, inputId) {
+      const dropZone = document.getElementById(dropZoneId);
+      dropZone.addEventListener('click', () => document.getElementById(inputId).click());
       dropZone.addEventListener('dragover', (e) => {
         e.preventDefault();
-        dropZone.classList.add('drag-over');
+        dropZone.classList.add('dragover');
       });
-      dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+      dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
       dropZone.addEventListener('drop', (e) => {
         e.preventDefault();
-        dropZone.classList.remove('drag-over');
+        dropZone.classList.remove('dragover');
         const file = e.dataTransfer.files[0];
-        if (file) readFile({ files: [file] }, textarea);
+        if (file) {
+          document.getElementById(inputId).files = e.dataTransfer.files;
+          document.getElementById(inputId).dispatchEvent(new Event('change'));
+        }
       });
     }
 
-    // ファイル読み込み
-    function readFile(input, textarea) {
-      const file = input.files[0];
-      if (!file) return;
-      const reader = new FileReader();
-      reader.onload = () => {
-        textarea.value = reader.result;
-        logDebug(`ファイル読み込み完了: ${file.name}, サイズ: ${file.size} bytes`);
-      };
-      reader.onerror = () => logDebug(`ファイル読み込みエラー: ${file.name}`);
-      reader.readAsText(file);
-    }
-
-    // ログのレンダリング
-    async function renderLog() {
+    // ログファイルの処理
+    /**
+     * ログファイルを読み込み、テキストエリアに表示
+     * @param {Event} event - ファイル入力イベント
+     */
+    async function handleLogFile(event) {
       try {
-        terminal.clear();
-        rawLog = document.getElementById('logInput').value;
-        const timestampData = document.getElementById('useTimestamp').checked
-          ? document.getElementById('timestampInput').value
-          : '';
-        logDebug('レンダリング開始');
-
-        // プログレスバーの初期化
-        const progressBar = document.getElementById('progressBar');
-        progressBar.style.width = '0%';
-
-        // チャンク処理
-        const chunkSize = 1024 * 1024; // 1MB
-        let offset = 0;
-        plainLog = '';
-
-        while (offset < rawLog.length) {
-          const chunk = rawLog.slice(offset, offset + chunkSize);
-          const processed = processChunk(chunk);
-          plainLog += processed.plain;
-          terminal.write(ansiToHtml.toHtml(processed.raw));
-          offset += chunkSize;
-
-          // プログレス更新
-          const progress = Math.min(100, (offset / rawLog.length) * 100);
-          progressBar.style.width = `${progress}%`;
-          await new Promise(resolve => setTimeout(resolve, 10)); // 非同期でUI更新
-        }
-
-        // タイムスタンプ処理（簡略化）
-        if (timestampData) {
-          terminal.write(`\n[タイムスタンプデータ]\n${timestampData}`);
-          logDebug('タイムスタンプデータ処理');
-        }
-
-        progressBar.style.width = '100%';
-        logDebug('レンダリング完了');
+        const file = event.target.files[0];
+        if (!file) return;
+        addDebugLog(`ログファイル読み込み開始: ${file.name}`);
+        logContent = await file.text();
+        document.getElementById('logText').value = logContent;
+        addDebugLog(`ログファイル読み込み完了: ${file.size} bytes`);
       } catch (error) {
-        logDebug(`レンダリングエラー: ${error.message}`);
-        terminal.write(`エラー: ${error.message}`);
+        addDebugLog(`ログファイル読み込みエラー: ${error.message}`);
       }
     }
 
-    // チャンク処理
-    function processChunk(chunk) {
-      // ANSIエスケープシーケンスを保持した生ログ
-      const raw = chunk;
-      // 制御文字を削除したプレーンテキスト
-      const plain = chunk.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '')
-                       .replace(/[\x00-\x1F\x7F]/g, '');
-      return { raw, plain };
+    // タイムスタンプファイルの処理
+    /**
+     * タイムスタンプファイルを読み込み、テキストエリアに表示
+     * @param {Event} event - ファイル入力イベント
+     */
+    async function handleTimestampFile(event) {
+      try {
+        const file = event.target.files[0];
+        if (!file) return;
+        addDebugLog(`タイムスタンプファイル読み込み開始: ${file.name}`);
+        timestampContent = await file.text();
+        document.getElementById('timestampText').value = timestampContent;
+        addDebugLog(`タイムスタンプファイル読み込み完了: ${file.size} bytes`);
+      } catch (error) {
+        addDebugLog(`タイムスタンプファイル読み込みエラー: ${error.message}`);
+      }
     }
 
-    // クリップボードにコピー
-    function copyToClipboard(text) {
+    // ログのレンダリング
+    /**
+     * ログを処理し、ターミナルに出力
+     */
+    async function renderLog() {
+      try {
+        // 入力の取得
+        const inputMethod = document.querySelector('input[name="inputMethod"]:checked').value;
+        logContent = inputMethod === 'file' ? logContent : document.getElementById('logText').value;
+        timestampContent = document.getElementById('useTimestamp').checked ?
+          (inputMethod === 'file' ? timestampContent : document.getElementById('timestampText').value) : '';
+
+        if (!logContent) {
+          addDebugLog('エラー: ログ内容がありません');
+          alert('ログ内容を入力してください');
+          return;
+        }
+
+        addDebugLog('レンダリング開始');
+        terminal.clear();
+        progressBar.classList.remove('d-none');
+        progressFill.style.width = '0%';
+
+        // チャンク処理
+        const chunkSize = 1024 * 1024; // 1MB
+        plainText = '';
+        let processed = 0;
+
+        for (let i = 0; i < logContent.length; i += chunkSize) {
+          const chunk = logContent.slice(i, i + chunkSize);
+          const html = ansiConverter.toHtml(chunk);
+          plainText += stripAnsi(chunk);
+          terminal.write(html);
+          processed += chunk.length;
+          progressFill.style.width = `${(processed / logContent.length) * 100}%`;
+          await new Promise(resolve => setTimeout(resolve, 10)); // UI更新用
+        }
+
+        // タイムスタンプの処理（簡易表示）
+        if (timestampContent) {
+          terminal.write(`\n=== タイムスタンプ ===\n${timestampContent}`);
+          addDebugLog('タイムスタンプを表示');
+        }
+
+        progressBar.classList.add('d-none');
+        addDebugLog('レンダリング完了');
+      } catch (error) {
+        addDebugLog(`レンダリングエラー: ${error.message}`);
+        alert('レンダリング中にエラーが発生しました');
+      }
+    }
+
+    // ANSIエスケープシーケンスの除去
+    /**
+     * ログからANSIエスケープシーケンスを除去してプレーンテキストを生成
+     * @param {string} text - 入力テキスト
+     * @returns {string} プレーンテキスト
+     */
+    function stripAnsi(text) {
+      return text.replace(/\u001B\[[0-9;]*[a-zA-Z]/g, '');
+    }
+
+    // テキストのコピー
+    /**
+     * テキストをクリップボードにコピー
+     * @param {string} text - コピーするテキスト
+     * @param {string} type - テキストの種類（ログ用メッセージ）
+     */
+    function copyText(text, type) {
       navigator.clipboard.writeText(text)
-        .then(() => logDebug('クリップボードにコピーしました'))
-        .catch(err => logDebug(`コピーエラー: ${err.message}`));
+        .then(() => addDebugLog(`${type}をコピーしました`))
+        .catch(err => addDebugLog(`コピーエラー: ${err.message}`));
     }
 
-    // ファイルダウンロード
-    function downloadFile(content, filename) {
-      const blob = new Blob([content], { type: 'text/plain' });
+    // テキストのダウンロード
+    /**
+     * テキストをファイルとしてダウンロード
+     * @param {string} text - ダウンロードするテキスト
+     * @param {string} filename - ファイル名
+     * @param {string} type - テキストの種類（ログ用メッセージ）
+     */
+    function downloadText(text, filename, type) {
+      const blob = new Blob([text], { type: 'text/plain' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
       a.download = filename;
       a.click();
       URL.revokeObjectURL(url);
-      logDebug(`ファイルダウンロード: ${filename}`);
-    }
-
-    // デバッグログ出力
-    function logDebug(message) {
-      debugLogs.push(`${new Date().toLocaleTimeString()}: ${message}`);
-      console.log(message);
-      const debugOutput = document.getElementById('debugOutput');
-      debugOutput.innerHTML = debugLogs.join('<br>');
-      debugOutput.scrollTop = debugOutput.scrollHeight;
+      addDebugLog(`${type}をダウンロードしました`);
     }
 
     // ページ読み込み時に初期化
