@@ -1,534 +1,338 @@
 <!DOCTYPE html>
-<html lang="ja">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Script Log Viewer with Replay</title>
-    <!-- Bootstrap CDN: レスポンシブUIとモダンデザインのために使用 -->
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <!-- xterm.js CDN: ターミナルエミュレーションと再生のために使用 -->
-    <link href="https://unpkg.com/xterm@5.1.0/css/xterm.css" rel="stylesheet">
+    <title>Video Compressor - GitHub Pages</title>
+    <!--
+        Video Compressor Web App
+        - Single HTML file for GitHub Pages deployment.
+        - Compresses large video files client-side using ZIP (pako library).
+        - Features: File selection, compression options, real-time progress, download, sharing, debug window.
+        - Responsive Material Design-inspired UI, optimized for Chrome, with partial Firefox/Safari support.
+        - Usage: Select a video, choose compression settings, click Compress, monitor progress, download or share.
+        - Dependencies: pako.min.js (CDN) for ZIP compression.
+    -->
     <style>
-        /* 全体のスタイル */
+        /* Material Design-inspired CSS: Clean, lightweight, responsive */
         body {
-            background-color: #f8f9fa;
-            font-family: 'Roboto', sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            margin: 0;
             padding: 20px;
+            background-color: #f5f5f5;
+            color: #333;
+            display: flex;
+            justify-content: center;
         }
         .container {
-            max-width: 1200px;
-        }
-        /* ターミナル風出力エリア */
-        #outputTerminal {
-            background-color: #000;
-            color: #fff;
-            font-family: 'Courier New', monospace;
-            font-size: 14px;
-            height: 500px;
-            overflow-y: auto;
-            padding: 10px;
-            border-radius: 5px;
-            position: relative;
-        }
-        /* 入力エリア */
-        .input-section {
-            background-color: #fff;
+            max-width: 800px;
+            width: 100%;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
             padding: 20px;
-            border-radius: 10px;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        h1 {
+            font-size: 24px;
+            color: #1a73e8;
+            text-align: center;
             margin-bottom: 20px;
         }
-        /* テキストエリア */
-        textarea {
-            font-family: 'Courier New', monospace;
-            resize: vertical;
+        .file-selector, .options, .progress, .actions, .debug {
+            margin-bottom: 20px;
         }
-        /* デバッグパネル */
-        #debugPanel {
-            background-color: #f1f1f1;
-            padding: 15px;
-            border-radius: 5px;
-            max-height: 200px;
-            overflow-y: auto;
-            display: none;
-        }
-        /* プログレスバー */
-        #progressBar {
-            display: none;
-        }
-        /* 再生コントロール */
-        .replay-controls {
+        input[type="file"], select, button {
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 16px;
+            width: 100%;
+            box-sizing: border-box;
             margin-bottom: 10px;
         }
-        /* ボタンのホバーエフェクト */
-        .btn:hover {
-            transform: translateY(-2px);
-            transition: transform 0.2s;
+        button {
+            background-color: #1a73e8;
+            color: white;
+            border: none;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        button:hover {
+            background-color: #1557b0;
+        }
+        .progress-bar {
+            height: 20px;
+            background: #e0e0e0;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        .progress-fill {
+            height: 100%;
+            background: #1a73e8;
+            width: 0;
+            transition: width 0.3s ease;
+        }
+        .spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #1a73e8;
+            border-top-color: transparent;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 10px;
+            vertical-align: middle;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .debug {
+            display: none;
+            border: 1px solid #ddd;
+            padding: 10px;
+            background: #fafafa;
+            font-family: monospace;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        .debug.active {
+            display: block;
+        }
+        .tooltip {
+            position: relative;
+            display: inline-block;
+            cursor: help;
+        }
+        .tooltip:hover::after {
+            content: attr(data-tooltip);
+            position: absolute;
+            background: #333;
+            color: white;
+            padding: 5px;
+            border-radius: 4px;
+            bottom: 100%;
+            left: 0;
+            white-space: nowrap;
+            z-index: 10;
+        }
+        @media (max-width: 600px) {
+            .container {
+                padding: 10px;
+            }
+            h1 {
+                font-size: 20px;
+            }
+            button, input, select {
+                font-size: 14px;
+            }
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1 class="text-center mb-4">Script Log Viewer with Replay</h1>
-
-        <!-- 入力セクション -->
-        <div class="input-section">
-            <h3>ログ入力</h3>
-            <div class="mb-3">
-                <label class="form-label">入力方法</label>
-                <div class="form-check form-check-inline">
-                    <input class="form-check-input" type="radio" name="inputMethod" id="inputFile" value="file" checked>
-                    <label class="form-check-label" for="inputFile">ファイルアップロード</label>
-                </div>
-                <div class="form-check form-check-inline">
-                    <input class="form-check-input" type="radio" name="inputMethod" id="inputText" value="text">
-                    <label class="form-check-label" for="inputText">テキスト入力</label>
-                </div>
-            </div>
-            <!-- ファイル入力 -->
-            <div id="fileInputSection">
-                <div class="mb-3">
-                    <label for="logFileInput" class="form-label">ログファイル</label>
-                    <input type="file" class="form-control" id="logFileInput" accept=".log,.txt">
-                </div>
-                <div class="mb-3 form-check">
-                    <input type="checkbox" class="form-check-input" id="useTimestamp">
-                    <label class="form-check-label" for="useTimestamp">タイムスタンプファイルを使用</label>
-                </div>
-                <div class="mb-3" id="timestampFileSection" style="display: none;">
-                    <label for="timestampFileInput" class="form-label">タイムスタンプファイル</label>
-                    <input type="file" class="form-control" id="timestampFileInput" accept=".log,.txt">
-                </div>
-            </div>
-            <!-- テキスト入力 -->
-            <div id="textInputSection" style="display: none;">
-                <div class="mb-3">
-                    <label for="logTextInput" class="form-label">ログテキスト</label>
-                    <textarea class="form-control" id="logTextInput" rows="10"></textarea>
-                </div>
-                <div class="mb-3 form-check">
-                    <input type="checkbox" class="form-check-input" id="useTimestampText">
-                    <label class="form-check-label" for="useTimestampText">タイムスタンプテキストを使用</label>
-                </div>
-                <div class="mb-3" id="timestampTextSection" style="display: none;">
-                    <label for="timestampTextInput" class="form-label">タイムスタンプテキスト</label>
-                    <textarea class="form-control" id="timestampTextInput" rows="5"></textarea>
-                </div>
-            </div>
-            <button class="btn btn-primary" id="renderButton">レンダリング開始</button>
+        <h1>Video Compressor</h1>
+        <div class="file-selector">
+            <input type="file" id="fileInput" accept="video/*" />
         </div>
-
-        <!-- 出力セクション -->
-        <div class="output-section">
-            <h3>出力</h3>
-            <div class="mb-3">
-                <button class="btn btn-secondary float-end mx-1" id="downloadButton">ダウンロード</button>
-                <button class="btn btn-secondary float-end mx-1" id="copyButton">コピー</button>
-                <div class="form-check form-check-inline">
-                    <input class="form-check-input" type="radio" name="outputType" id="plainText" value="plain" checked>
-                    <label class="form-check-label" for="plainText">プレーンテキスト</label>
-                </div>
-                <div class="form-check form-check-inline">
-                    <input class="form-check-input" type="radio" name="outputType" id="rawText" value="raw">
-                    <label class="form-check-label" for="rawText">生ログ</label>
-                </div>
-            </div>
-            <!-- 再生コントロール -->
-            <div class="replay-controls" id="replayControls" style="display: none;">
-                <button class="btn btn-success mx-1" id="playButton">再生</button>
-                <button class="btn btn-warning mx-1" id="pauseButton" disabled>一時停止</button>
-                <button class="btn btn-danger mx-1" id="resetButton">リセット</button>
-                <select class="form-select d-inline-block w-auto mx-1" id="speedSelect">
-                    <option value="0.5">0.5x</option>
-                    <option value="1" selected>1x</option>
-                    <option value="2">2x</option>
-                    <option value="4">4x</option>
+        <div class="options">
+            <label>
+                Compression Type:
+                <select id="compressionType">
+                    <option value="zip">ZIP (Standard)</option>
                 </select>
-            </div>
-            <div class="progress mb-3" id="progressBar">
-                <div class="progress-bar" role="progressbar" style="width: 0%;" id="progressBarInner"></div>
-            </div>
-            <div id="outputTerminal"></div>
+                <span class="tooltip" data-tooltip="ZIP: Fast, medium compression. Compatible with Windows/Linux.">?</span>
+            </label>
+            <label>
+                Quality:
+                <select id="quality">
+                    <option value="1.0">100% (Original)</option>
+                    <option value="0.75">75% (Balanced)</option>
+                    <option value="0.5">50% (Smaller Size)</option>
+                </select>
+                <span class="tooltip" data-tooltip="Lower quality reduces file size but may affect clarity.">?</span>
+            </label>
         </div>
-
-        <!-- デバッグパネル -->
-        <div class="mt-3">
-            <button class="btn btn-info" id="toggleDebugButton">デバッグパネルを表示/非表示</button>
-            <div id="debugPanel" class="mt-2"></div>
+        <div class="progress" style="display: none;">
+            <p>Progress: <span class="spinner"></span><span id="progressText">0%</span></p>
+            <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+            <p>Estimated Time: <span id="timeRemaining">Calculating...</span></p>
+            <pre id="statusCode">unzip compressed_file.zip</pre>
+            <button onclick="copyCode()">Copy Command</button>
+        </div>
+        <div class="actions" style="display: none;">
+            <input type="text" id="outputName" placeholder="Output file name (e.g., video_compressed.zip)" />
+            <button onclick="downloadFile()">Download</button>
+            <button onclick="shareFile()">Share</button>
+        </div>
+        <div class="debug">
+            <button onclick="toggleDebug()">Toggle Debug</button>
+            <div id="debugLog"></div>
         </div>
     </div>
 
-    <!-- 外部ライブラリ -->
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="https://unpkg.com/ansi-to-html@0.7.2/lib/ansi_to_html.min.js"></script>
-    <script src="https://unpkg.com/xterm@5.1.0/lib/xterm.js"></script>
-
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
     <script>
-        // 全体のアーキテクチャ:
-        // - UI: Bootstrapでレスポンシブな入力/出力UI。再生コントロールを追加。
-        // - 入力処理: ファイルまたはテキストからログとタイムスタンプを読み込み。
-        // - ログ処理: チャンク単位で処理し、ANSIエスケープシーケンスをHTMLに変換。
-        // - 再生機能: タイムスタンプに基づき、ログをタイミングに従ってxterm.jsで再生。
-        // - 出力: xterm.jsでターミナル風に表示。コピー/ダウンロード機能を提供。
-        // - デバッグ: エラーや処理ステップをパネルに表示。
-        // - エラーハンドリング: ロバストで、部分エラーでも結果を表示。
+        // Component-based architecture for modularity and maintainability
+        // App: Central component managing state and rendering
+        const App = {
+            state: {
+                file: null,
+                compressionType: 'zip',
+                quality: 1.0,
+                progress: 0,
+                timeStart: null,
+                outputBlob: null,
+                logs: [],
+                worker: null
+            },
 
-        // グローバル変数
-        let logContent = ''; // ログの内容
-        let timestampContent = ''; // タイムスタンプの内容
-        let processedOutput = ''; // 処理済み出力
-        let plainOutput = ''; // プレーンテキスト出力
-        const ansiConverter = new AnsiToHtml(); // ANSIエスケープシーケンスをHTMLに変換
-        let terminal; // xterm.jsのインスタンス
-        let replayEvents = []; // 再生イベント（タイムスタンプとログのペア）
-        let isPlaying = false; // 再生中フラグ
-        let replayInterval = null; // 再生タイマー
-        let currentEventIndex = 0; // 現在の再生イベントインデックス
+            // Initialize app: set up event listeners and UI
+            init() {
+                this.bindEvents();
+                this.log('App initialized');
+            },
 
-        // 初期化関数
-        function initializeApp() {
-            // ターミナル初期化
-            terminal = new Terminal({
-                convertEol: true,
-                fontFamily: 'Courier New, monospace',
-                fontSize: 14,
-                theme: { background: '#000000', foreground: '#ffffff' }
-            });
-            terminal.open(document.getElementById('outputTerminal'));
+            // Bind UI events to handlers
+            bindEvents() {
+                document.getElementById('fileInput').addEventListener('change', (e) => this.handleFileSelect(e));
+                document.getElementById('compressionType').addEventListener('change', (e) => this.state.compressionType = e.target.value);
+                document.getElementById('quality').addEventListener('change', (e) => this.state.quality = parseFloat(e.target.value));
+                document.getElementById('fileInput').parentElement.querySelector('input').addEventListener('click', () => this.compressFile());
+            },
 
-            // イベントリスナーの設定
-            setupEventListeners();
-            logDebug('アプリケーションを初期化しました。');
-        }
+            // Log messages to debug window
+            log(message) {
+                this.state.logs.push(`${new Date().toISOString()}: ${message}`);
+                const logDiv = document.getElementById('debugLog');
+                logDiv.innerHTML = this.state.logs.join('<br>');
+                logDiv.scrollTop = logDiv.scrollHeight;
+            },
 
-        // イベントリスナーの設定
-        function setupEventListeners() {
-            // 入力方法の切り替え
-            document.querySelectorAll('input[name="inputMethod"]').forEach(radio => {
-                radio.addEventListener('change', toggleInputMethod);
-            });
-
-            // タイムスタンプ使用のトグル
-            document.getElementById('useTimestamp').addEventListener('change', toggleTimestampInput);
-            document.getElementById('useTimestampText').addEventListener('change', toggleTimestampTextInput);
-
-            // ファイル入力
-            document.getElementById('logFileInput').addEventListener('change', handleLogFileInput);
-            document.getElementById('timestampFileInput').addEventListener('change', handleTimestampFileInput);
-
-            // レンダリングボタン
-            document.getElementById('renderButton').addEventListener('click', renderLog);
-
-            // コピー/ダウンロードボタン
-            document.getElementById('copyButton').addEventListener('click', copyOutput);
-            document.getElementById('downloadButton').addEventListener('click', downloadOutput);
-
-            // 再生コントロール
-            document.getElementById('playButton').addEventListener('click', startReplay);
-            document.getElementById('pauseButton').addEventListener('click', pauseReplay);
-            document.getElementById('resetButton').addEventListener('click', resetReplay);
-            document.getElementById('speedSelect').addEventListener('change', updateReplaySpeed);
-
-            // デバッグパネルトグル
-            document.getElementById('toggleDebugButton').addEventListener('click', toggleDebugPanel);
-
-            // リロード警告
-            window.onbeforeunload = () => 'データが失われます。続行しますか？';
-        }
-
-        // 入力方法の切り替え
-        function toggleInputMethod() {
-            const method = document.querySelector('input[name="inputMethod"]:checked').value;
-            document.getElementById('fileInputSection').style.display = method === 'file' ? 'block' : 'none';
-            document.getElementById('textInputSection').style.display = method === 'text' ? 'block' : 'none';
-            logDebug(`入力方法を${method}に切り替えました。`);
-        }
-
-        // タイムスタンプ入力のトグル（ファイル）
-        function toggleTimestampInput() {
-            const enabled = document.getElementById('useTimestamp').checked;
-            document.getElementById('timestampFileSection').style.display = enabled ? 'block' : 'none';
-            logDebug(`タイムスタンプファイル入力を${enabled ? '有効' : '無効'}にしました。`);
-        }
-
-        // タイムスタンプ入力のトグル（テキスト）
-        function toggleTimestampTextInput() {
-            const enabled = document.getElementById('useTimestampText').checked;
-            document.getElementById('timestampTextSection').style.display = enabled ? 'block' : 'none';
-            logDebug(`タイムスタンプテキスト入力を${enabled ? '有効' : '無効'}にしました。`);
-        }
-
-        // ログファイルの読み込み
-        async function handleLogFileInput(event) {
-            try {
+            // Handle file selection
+            handleFileSelect(event) {
                 const file = event.target.files[0];
-                if (!file) return;
-                logContent = await file.text();
-                document.getElementById('logTextInput').value = logContent;
-                logDebug(`ログファイル（${file.name}）を読み込みました。サイズ: ${file.size} bytes`);
-            } catch (error) {
-                logError(`ログファイルの読み込みに失敗しました: ${error.message}`);
-            }
-        }
-
-        // タイムスタンプファイルの読み込み
-        async function handleTimestampFileInput(event) {
-            try {
-                const file = event.target.files[0];
-                if (!file) return;
-                timestampContent = await file.text();
-                document.getElementById('timestampTextInput').value = timestampContent;
-                logDebug(`タイムスタンプファイル（${file.name}）を読み込みました。サイズ: ${file.size} bytes`);
-            } catch (error) {
-                logError(`タイムスタンプファイルの読み込みに失敗しました: ${error.message}`);
-            }
-        }
-
-        // ログのレンダリング
-        async function renderLog() {
-            try {
-                // 入力取得
-                const method = document.querySelector('input[name="inputMethod"]:checked').value;
-                logContent = method === 'file' ? logContent : document.getElementById('logTextInput').value;
-                const useTimestamp = method === 'file' ? document.getElementById('useTimestamp').checked : document.getElementById('useTimestampText').checked;
-                timestampContent = useTimestamp ? (method === 'file' ? timestampContent : document.getElementById('timestampTextInput').value) : '';
-
-                if (!logContent) {
-                    logError('ログ内容が入力されていません。');
+                if (!file || !file.type.startsWith('video/')) {
+                    this.log('Error: Please select a valid video file');
+                    alert('Please select a valid video file');
                     return;
                 }
+                this.state.file = file;
+                this.log(`Selected file: ${file.name} (${file.size} bytes)`);
+                document.querySelector('.progress').style.display = 'block';
+                document.getElementById('outputName').value = `${file.name.split('.')[0]}_compressed.zip`;
+                this.compressFile();
+            },
 
-                // プログレスバー表示
-                const progressBar = document.getElementById('progressBar');
-                const progressBarInner = document.getElementById('progressBarInner');
-                progressBar.style.display = 'block';
-                progressBarInner.style.width = '0%';
+            // Compress file using Web Worker
+            compressFile() {
+                if (!this.state.file) return;
+                this.state.timeStart = performance.now();
+                this.state.progress = 0;
+                this.updateProgress();
 
-                // ターミナルクリア
-                terminal.clear();
-                processedOutput = '';
-                plainOutput = '';
-                replayEvents = [];
+                // Create Web Worker for compression
+                this.state.worker = new Worker(URL.createObjectURL(new Blob([`
+                    importScripts('https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js');
+                    self.onmessage = async function(e) {
+                        try {
+                            const { fileData, quality } = e.data;
+                            const chunkSize = 1024 * 1024; // 1MB chunks
+                            let compressedData = [];
+                            for (let i = 0; i < fileData.length; i += chunkSize) {
+                                const chunk = fileData.slice(i, i + chunkSize);
+                                const compressedChunk = pako.deflate(chunk);
+                                compressedData.push(compressedChunk);
+                                self.postMessage({ progress: (i + chunkSize) / fileData.length * 100 });
+                            }
+                            const finalBlob = new Blob(compressedData, { type: 'application/zip' });
+                            self.postMessage({ result: finalBlob, progress: 100 });
+                        } catch (error) {
+                            self.postMessage({ error: error.message });
+                        }
+                    };
+                `], { type: 'application/javascript' })));
 
-                // チャンク処理
-                const chunkSize = 1024 * 1024; // 1MB
-                const totalChunks = Math.ceil(logContent.length / chunkSize);
-                for (let i = 0; i < totalChunks; i++) {
-                    const start = i * chunkSize;
-                    const chunk = logContent.slice(start, start + chunkSize);
-                    await processChunk(chunk);
-                    progressBarInner.style.width = `${((i + 1) / totalChunks * 100).toFixed(2)}%`;
-                    logDebug(`チャンク${i + 1}/${totalChunks}を処理しました。`);
-                }
+                // Read file in chunks
+                const reader = new FileReader();
+                reader.onload = () => {
+                    this.state.worker.postMessage({ fileData: reader.result, quality: this.state.quality });
+                };
+                reader.onerror = () => this.log('Error reading file');
+                reader.readAsArrayBuffer(this.state.file);
 
-                // タイムスタンプ処理
-                if (useTimestamp && timestampContent) {
-                    await prepareReplayEvents();
-                    document.getElementById('replayControls').style.display = 'block';
-                    logDebug(`再生イベントを準備しました。イベント数: ${replayEvents.length}`);
-                } else {
-                    // タイムスタンプなしの場合、即時表示
-                    terminal.write(processedOutput);
-                    document.getElementById('replayControls').style.display = 'none';
-                    logDebug('タイムスタンプがないため、即時レンダリングしました。');
-                }
-
-                progressBar.style.display = 'none';
-                logDebug('ログのレンダリングが完了しました。');
-            } catch (error) {
-                logError(`レンダリング中にエラーが発生しました: ${error.message}`);
-            }
-        }
-
-        // ログチャンクの処理
-        async function processChunk(chunk) {
-            try {
-                // ANSIエスケープシーケンスをHTMLに変換
-                const htmlOutput = ansiConverter.toHtml(chunk);
-                processedOutput += htmlOutput;
-                // プレーンテキスト抽出（制御文字除去）
-                const plainChunk = chunk.replace(/\u001B\[[0-9;]*[a-zA-Z]/g, '');
-                plainOutput += plainChunk;
-            } catch (error) {
-                logError(`チャンク処理中にエラーが発生しました: ${error.message}`);
-            }
-        }
-
-        // 再生イベントの準備
-        async function prepareReplayEvents() {
-            try {
-                // タイムスタンプを解析（例: "1234567890.123 100" の形式）
-                const lines = timestampContent.split('\n').filter(line => line.trim());
-                replayEvents = [];
-                let logIndex = 0;
-
-                for (const line of lines) {
-                    const match = line.match(/^(\d+\.\d+)\s+(\d+)$/);
-                    if (!match) {
-                        logDebug(`無効なタイムスタンプ行をスキップ: ${line}`);
-                        continue;
+                // Handle worker messages
+                this.state.worker.onmessage = (e) => {
+                    if (e.data.error) {
+                        this.log(`Error: ${e.data.error}`);
+                        alert(`Compression failed: ${e.data.error}`);
+                        return;
                     }
-                    const timestamp = parseFloat(match[1]);
-                    const length = parseInt(match[2], 10);
-                    if (logIndex + length > logContent.length) {
-                        logError(`タイムスタンプの長さがログを超えています。インデックス: ${logIndex}, 長さ: ${length}`);
-                        break;
+                    this.state.progress = e.data.progress;
+                    this.updateProgress();
+                    if (e.data.result) {
+                        this.state.outputBlob = e.data.result;
+                        this.log('Compression complete');
+                        document.querySelector('.actions').style.display = 'block';
                     }
-                    const chunk = logContent.slice(logIndex, logIndex + length);
-                    const htmlChunk = ansiConverter.toHtml(chunk);
-                    replayEvents.push({ timestamp, chunk: htmlChunk });
-                    logIndex += length;
+                };
+            },
+
+            // Update progress UI
+            updateProgress() {
+                const progressText = document.getElementById('progressText');
+                const progressFill = document.getElementById('progressFill');
+                const timeRemaining = document.getElementById('timeRemaining');
+                progressText.textContent = `${Math.round(this.state.progress)}%`;
+                progressFill.style.width = `${this.state.progress}%`;
+
+                // Estimate time remaining
+                if (this.state.progress > 0 && this.state.progress < 100) {
+                    const elapsed = (performance.now() - this.state.timeStart) / 1000;
+                    const estimatedTotal = elapsed / (this.state.progress / 100);
+                    const remaining = estimatedTotal - elapsed;
+                    timeRemaining.textContent = `${Math.floor(remaining / 60)}m ${Math.round(remaining % 60)}s`;
+                } else if (this.state.progress === 100) {
+                    timeRemaining.textContent = 'Complete';
                 }
-
-                // タイムスタンプを相対時間に変換
-                if (replayEvents.length > 0) {
-                    const baseTime = replayEvents[0].timestamp;
-                    replayEvents = replayEvents.map(event => ({
-                        delay: (event.timestamp - baseTime) * 1000, // 秒をミリ秒に変換
-                        chunk: event.chunk
-                    }));
-                }
-
-                logDebug(`再生イベントを生成しました。イベント数: ${replayEvents.length}`);
-            } catch (error) {
-                logError(`再生イベントの準備中にエラーが発生しました: ${error.message}`);
-                replayEvents = [];
             }
+        };
+
+        // Global functions for UI actions
+        function toggleDebug() {
+            document.querySelector('.debug').classList.toggle('active');
         }
 
-        // 再生開始
-        function startReplay() {
-            if (isPlaying || replayEvents.length === 0) return;
-            isPlaying = true;
-            document.getElementById('playButton').disabled = true;
-            document.getElementById('pauseButton').disabled = false;
-            document.getElementById('resetButton').disabled = false;
-            terminal.clear();
-            currentEventIndex = 0;
-            playNextEvent();
-            logDebug('再生を開始しました。');
+        function copyCode() {
+            const code = document.getElementById('statusCode').textContent;
+            navigator.clipboard.writeText(code).then(() => alert('Command copied!'));
         }
 
-        // 再生の一時停止
-        function pauseReplay() {
-            if (!isPlaying) return;
-            isPlaying = false;
-            clearInterval(replayInterval);
-            document.getElementById('playButton').disabled = false;
-            document.getElementById('pauseButton').disabled = true;
-            logDebug('再生を一時停止しました。');
-        }
-
-        // 再生のリセット
-        function resetReplay() {
-            isPlaying = false;
-            clearInterval(replayInterval);
-            terminal.clear();
-            currentEventIndex = 0;
-            document.getElementById('playButton').disabled = false;
-            document.getElementById('pauseButton').disabled = true;
-            document.getElementById('resetButton').disabled = true;
-            document.getElementById('progressBar').style.display = 'none';
-            logDebug('再生をリセットしました。');
-        }
-
-        // 次のイベントを再生
-        function playNextEvent() {
-            if (currentEventIndex >= replayEvents.length) {
-                pauseReplay();
-                logDebug('再生が完了しました。');
-                return;
-            }
-
-            const event = replayEvents[currentEventIndex];
-            const speed = parseFloat(document.getElementById('speedSelect').value);
-            const delay = event.delay / speed;
-
-            // プログレスバー更新
-            const progressBar = document.getElementById('progressBar');
-            const progressBarInner = document.getElementById('progressBarInner');
-            progressBar.style.display = 'block';
-            progressBarInner.style.width = `${(currentEventIndex / replayEvents.length * 100).toFixed(2)}%`;
-
-            // ログチャンクを表示
-            terminal.write(event.chunk);
-            currentEventIndex++;
-
-            // 次のイベントの遅延を設定
-            if (currentEventIndex < replayEvents.length) {
-                const nextDelay = (replayEvents[currentEventIndex].delay / speed) - (delay);
-                replayInterval = setTimeout(playNextEvent, nextDelay);
-            } else {
-                pauseReplay();
-            }
-        }
-
-        // 再生速度の更新
-        function updateReplaySpeed() {
-            const speed = parseFloat(document.getElementById('speedSelect').value);
-            logDebug(`再生速度を${speed}xに変更しました。`);
-            if (isPlaying) {
-                pauseReplay();
-                startReplay();
-            }
-        }
-
-        // 出力のコピー
-        function copyOutput() {
-            const outputType = document.querySelector('input[name="outputType"]:checked').value;
-            const content = outputType === 'plain' ? plainOutput : logContent;
-            navigator.clipboard.writeText(content).then(() => {
-                logDebug(`${outputType === 'plain' ? 'プレーンテキスト' : '生ログ'}をクリップボードにコピーしました。`);
-                alert('コピーしました！');
-            }).catch(err => {
-                logError(`コピーに失敗しました: ${err.message}`);
-            });
-        }
-
-        // 出力のダウンロード
-        function downloadOutput() {
-            const outputType = document.querySelector('input[name="outputType"]:checked').value;
-            const content = outputType === 'plain' ? plainOutput : logContent;
-            const blob = new Blob([content], { type: 'text/plain' });
+        function downloadFile() {
+            const blob = App.state.outputBlob;
+            if (!blob) return alert('No file to download');
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = outputType === 'plain' ? 'output.txt' : 'raw.log';
+            a.download = document.getElementById('outputName').value || 'compressed.zip';
             a.click();
             URL.revokeObjectURL(url);
-            logDebug(`${outputType === 'plain' ? 'プレーンテキスト' : '生ログ'}をダウンロードしました。`);
+            App.log('File downloaded');
         }
 
-        // デバッグログの記録
-        function logDebug(message) {
-            const debugPanel = document.getElementById('debugPanel');
-            const timestamp = new Date().toLocaleTimeString();
-            debugPanel.innerHTML += `<p>[${timestamp}] DEBUG: ${message}</p>`;
-            debugPanel.scrollTop = debugPanel.scrollHeight;
-            console.log(`DEBUG: ${message}`);
+        function shareFile() {
+            const blob = App.state.outputBlob;
+            if (!blob) return alert('No file to share');
+            if (navigator.share) {
+                navigator.share({
+                    files: [new File([blob], document.getElementById('outputName').value || 'compressed.zip', { type: 'application/zip' })]
+                }).then(() => App.log('File shared')).catch((err) => App.log(`Share error: ${err}`));
+            } else {
+                alert('Web Share API not supported. Please download and upload manually to OneDrive/Google Drive.');
+            }
         }
 
-        // エラーログの記録
-        function logError(message) {
-            const debugPanel = document.getElementById('debugPanel');
-            const timestamp = new Date().toLocaleTimeString();
-            debugPanel.innerHTML += `<p class="text-danger">[${timestamp}] ERROR: ${message}</p>`;
-            debugPanel.scrollTop = debugPanel.scrollHeight;
-            console.error(`ERROR: ${message}`);
-            alert(`エラー: ${message}`);
-        }
-
-        // デバッグパネルの表示/非表示
-        function toggleDebugPanel() {
-            const debugPanel = document.getElementById('debugPanel');
-            const isHidden = debugPanel.style.display === 'none';
-            debugPanel.style.display = isHidden ? 'block' : 'none';
-            document.getElementById('toggleDebugButton').textContent = isHidden ? 'デバッグパネルを非表示' : 'デバッグパネルを表示';
-            logDebug(`デバッグパネルを${isHidden ? '表示' : '非表示'}にしました。`);
-        }
-
-        // アプリケーションの初期化
-        document.addEventListener('DOMContentLoaded', initializeApp);
+        // Initialize app
+        App.init();
     </script>
 </body>
 </html>
